@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>나만의 영화 티어리스트</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { overflow-x: hidden; }
+  body {
+    margin: 0;
+    padding: 24px 16px;
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    background: #1e1f24;
+    color: #eee;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  h1 { margin: 0 0 20px; font-size: 26px; }
+
+  .add-form { display: flex; gap: 8px; margin-bottom: 20px; }
+  .add-form input {
+    flex: 1; min-width: 0; padding: 10px 12px; font-size: 16px;
+    border: 1px solid #555; border-radius: 6px; background: #2b2d33; color: #fff;
+  }
+  .add-form button {
+    flex-shrink: 0; padding: 10px 18px; font-size: 16px; border: none; border-radius: 6px;
+    background: #4a7cff; color: #fff; cursor: pointer;
+  }
+  .add-form button:hover { background: #3a68e0; }
+
+  .tier-list { border: 1px solid #000; border-radius: 6px; overflow: hidden; }
+  .tier { display: flex; min-height: 84px; border-bottom: 1px solid #000; background: #2b2d33; }
+  .tier:last-child { border-bottom: none; }
+  .tier-label {
+    width: 84px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 32px; font-weight: 700; color: #1e1f24;
+  }
+  .tier[data-tier="S"] .tier-label { background: #ff7f7f; }
+  .tier[data-tier="A"] .tier-label { background: #ffbf7f; }
+  .tier[data-tier="B"] .tier-label { background: #ffdf7f; }
+  .tier[data-tier="C"] .tier-label { background: #bfff7f; }
+  .tier[data-tier="D"] .tier-label { background: #7fbfff; }
+
+  .dropzone {
+    flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-content: flex-start;
+    gap: 8px; padding: 10px; min-height: 84px;
+  }
+  .dropzone.over { background: rgba(255, 255, 255, 0.1); }
+
+  .pool-title { margin: 28px 0 8px; font-size: 18px; }
+  .pool-desc { margin: 0 0 8px; font-size: 14px; color: #aaa; line-height: 1.5; }
+  .pool { border: 2px dashed #555; border-radius: 6px; min-height: 100px; }
+
+  .movie {
+    display: flex; align-items: center; gap: 6px;
+    padding: 10px 8px 10px 12px; border-radius: 6px;
+    background: #44474f; color: #fff; font-size: 15px;
+    cursor: grab; user-select: none; -webkit-user-select: none;
+    touch-action: none; /* 휴대폰에서 카드를 끌 때 화면이 같이 스크롤되지 않도록 */
+    max-width: 100%;
+  }
+  .movie.placeholder { opacity: 0.35; }
+  .movie.ghost {
+    position: fixed; z-index: 1000; pointer-events: none; margin: 0;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5); transform: rotate(2deg); cursor: grabbing;
+  }
+  .movie .title { word-break: break-all; }
+  .movie .del {
+    flex-shrink: 0; border: none; background: none; color: #ff8a8a;
+    font-size: 18px; line-height: 1; cursor: pointer; padding: 4px 6px;
+  }
+  .movie .del:hover { color: #ff4d4d; }
+  .tier .movie .del { color: #bbb; }
+  .tier .movie .del:hover { color: #fff; }
+  .empty-msg { color: #777; font-size: 14px; padding: 4px; }
+
+  @media (max-width: 600px) {
+    body { padding: 16px; }
+    h1 { font-size: 21px; }
+    .tier, .tier .dropzone { min-height: 64px; }
+    .tier-label { width: 52px; font-size: 24px; }
+    .dropzone { padding: 8px; gap: 6px; }
+    .movie { font-size: 14px; padding: 8px 6px 8px 10px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎬 나만의 영화 티어리스트</h1>
+
+  <form class="add-form" id="addForm">
+    <input type="text" id="titleInput" placeholder="영화 제목을 입력하세요" autocomplete="off">
+    <button type="submit">추가</button>
+  </form>
+
+  <div class="tier-list">
+    <div class="tier" data-tier="S"><div class="tier-label">S</div><div class="dropzone" data-zone="S"></div></div>
+    <div class="tier" data-tier="A"><div class="tier-label">A</div><div class="dropzone" data-zone="A"></div></div>
+    <div class="tier" data-tier="B"><div class="tier-label">B</div><div class="dropzone" data-zone="B"></div></div>
+    <div class="tier" data-tier="C"><div class="tier-label">C</div><div class="dropzone" data-zone="C"></div></div>
+    <div class="tier" data-tier="D"><div class="tier-label">D</div><div class="dropzone" data-zone="D"></div></div>
+  </div>
+
+  <h2 class="pool-title">미분류</h2>
+  <p class="pool-desc">영화를 끌어서 원하는 등급에 놓으세요. 등급에 있는 영화의 ×는 미분류로 되돌리고, 미분류에 있는 영화의 ×는 영화를 삭제합니다.</p>
+  <div class="dropzone pool" data-zone="pool"></div>
+</div>
+
+<script>
+  const STORAGE_KEY = 'movieTierList.v1';
+  const ZONES = ['S', 'A', 'B', 'C', 'D', 'pool'];
+
+  // 처음 열 때 미분류 영역에 들어갈 영화
+  const DEFAULT_TITLES = [
+    '기생충', '인터스텔라', '라라랜드', '센과 치히로의 행방불명',
+    '어벤져스: 엔드게임', '범죄도시', '타이타닉', '토이 스토리'
+  ];
+
+  // movies: [{ id, title, zone }]  (배열 순서 = 화면 순서)
+  let movies = [];
+
+  function defaultMovies() {
+    return DEFAULT_TITLES.map((title, i) => ({ id: 'd' + i, title, zone: 'pool' }));
+  }
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw === null) return defaultMovies(); // 저장된 적이 없을 때만 8편으로 시작
+      const data = JSON.parse(raw);
+      return Array.isArray(data) ? data : defaultMovies();
+    } catch (e) {
+      return defaultMovies();
+    }
+  }
+
+  function save() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(movies));
+    } catch (e) {
+      alert('저장에 실패했습니다. 브라우저 저장소 설정을 확인해 주세요.');
+    }
+  }
+
+  function zoneEl(zone) {
+    return document.querySelector(`.dropzone[data-zone="${zone}"]`);
+  }
+
+  function render() {
+    ZONES.forEach(zone => {
+      const el = zoneEl(zone);
+      el.innerHTML = '';
+      const list = movies.filter(m => m.zone === zone);
+      if (zone === 'pool' && list.length === 0) {
+        const msg = document.createElement('div');
+        msg.className = 'empty-msg';
+        msg.textContent = '미분류 영화가 없습니다.';
+        el.appendChild(msg);
+      }
+      list.forEach(m => el.appendChild(createCard(m)));
+    });
+  }
+
+  function createCard(movie) {
+    const card = document.createElement('div');
+    card.className = 'movie';
+    card.dataset.id = movie.id;
+
+    const title = document.createElement('span');
+    title.className = 'title';
+    title.textContent = movie.title;
+    card.appendChild(title);
+
+    const del = document.createElement('button');
+    del.className = 'del';
+    del.type = 'button';
+    del.textContent = '×';
+    if (movie.zone === 'pool') {
+      del.title = '삭제';
+      del.setAttribute('aria-label', `${movie.title} 삭제`);
+      del.addEventListener('click', () => removeMovie(movie.id));
+    } else {
+      del.title = '미분류로 되돌리기';
+      del.setAttribute('aria-label', `${movie.title} 미분류로 되돌리기`);
+      del.addEventListener('click', () => moveMovie(movie.id, 'pool', null));
+    }
+    card.appendChild(del);
+
+    card.addEventListener('pointerdown', startDrag);
+    return card;
+  }
+
+  function removeMovie(id) {
+    const movie = movies.find(m => m.id === id);
+    if (!movie) return;
+    if (!confirm(`'${movie.title}'을(를) 삭제할까요?`)) return;
+    movies = movies.filter(m => m.id !== id);
+    save();
+    render();
+  }
+
+  // id 영화를 zone으로 옮기고, beforeId 카드 앞에 넣는다 (null이면 맨 뒤)
+  function moveMovie(id, zone, beforeId) {
+    const idx = movies.findIndex(m => m.id === id);
+    if (idx === -1) return;
+    const [moved] = movies.splice(idx, 1);
+    moved.zone = zone;
+    const beforeIdx = beforeId ? movies.findIndex(m => m.id === beforeId) : -1;
+    if (beforeIdx === -1) movies.push(moved);
+    else movies.splice(beforeIdx, 0, moved);
+    save();
+    render();
+  }
+
+  /* ---------- 드래그 앤 드롭 (마우스·터치 공통: Pointer Events) ---------- */
+  let drag = null; // { id, card, ghost, startX, startY, offsetX, offsetY, started, pointerId }
+  const DRAG_THRESHOLD = 5; // 이만큼 움직여야 드래그로 판단 (× 버튼 클릭과 구분)
+
+  function startDrag(e) {
+    if (e.button !== undefined && e.button !== 0) return;
+    if (e.target.closest('.del')) return; // × 버튼은 드래그 대신 클릭
+    const card = e.currentTarget;
+    const rect = card.getBoundingClientRect();
+    drag = {
+      id: card.dataset.id, card, ghost: null,
+      startX: e.clientX, startY: e.clientY,
+      offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top,
+      started: false, pointerId: e.pointerId
+    };
+    window.addEventListener('pointermove', onDragMove);
+    window.addEventListener('pointerup', endDrag);
+    window.addEventListener('pointercancel', cancelDrag);
+  }
+
+  function onDragMove(e) {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    if (!drag.started) {
+      if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < DRAG_THRESHOLD) return;
+      drag.started = true;
+      const rect = drag.card.getBoundingClientRect();
+      const ghost = drag.card.cloneNode(true);
+      ghost.classList.add('ghost');
+      ghost.style.width = rect.width + 'px';
+      document.body.appendChild(ghost);
+      drag.ghost = ghost;
+      drag.card.classList.add('placeholder');
+    }
+    e.preventDefault();
+    drag.ghost.style.left = (e.clientX - drag.offsetX) + 'px';
+    drag.ghost.style.top = (e.clientY - drag.offsetY) + 'px';
+
+    document.querySelectorAll('.dropzone.over').forEach(z => z.classList.remove('over'));
+    const zone = zoneAt(e.clientX, e.clientY);
+    if (zone) zone.classList.add('over');
+
+    autoScroll(e.clientY);
+  }
+
+  function endDrag(e) {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    const wasDragging = drag.started;
+    const id = drag.id;
+    cleanupDrag();
+    if (!wasDragging) return;
+    const zone = zoneAt(e.clientX, e.clientY);
+    if (!zone) { render(); return; }
+    const before = cardBefore(zone, e.clientX, e.clientY, id);
+    moveMovie(id, zone.dataset.zone, before ? before.dataset.id : null);
+  }
+
+  function cancelDrag() {
+    if (!drag) return;
+    const wasDragging = drag.started;
+    cleanupDrag();
+    if (wasDragging) render();
+  }
+
+  function cleanupDrag() {
+    if (drag.ghost) drag.ghost.remove();
+    drag.card.classList.remove('placeholder');
+    document.querySelectorAll('.dropzone.over').forEach(z => z.classList.remove('over'));
+    window.removeEventListener('pointermove', onDragMove);
+    window.removeEventListener('pointerup', endDrag);
+    window.removeEventListener('pointercancel', cancelDrag);
+    stopAutoScroll();
+    drag = null;
+  }
+
+  // 손가락/마우스 아래에 있는 등급 줄(라벨 포함) 또는 미분류 영역 찾기
+  function zoneAt(x, y) {
+    const el = document.elementFromPoint(x, y);
+    if (!el) return null;
+    const tier = el.closest('.tier');
+    if (tier) return tier.querySelector('.dropzone');
+    return el.closest('.dropzone');
+  }
+
+  // 놓은 위치 바로 뒤에 오는 카드 찾기
+  function cardBefore(zone, x, y, dragId) {
+    const cards = [...zone.querySelectorAll('.movie')].filter(c => c.dataset.id !== dragId);
+    for (const c of cards) {
+      const r = c.getBoundingClientRect();
+      const sameRow = y >= r.top && y <= r.bottom;
+      if ((sameRow && x < r.left + r.width / 2) || y < r.top) return c;
+    }
+    return null;
+  }
+
+  // 화면 위·아래 끝으로 끌면 자동 스크롤 (휴대폰에서 미분류 ↔ S칸 이동용)
+  let scrollTimer = null;
+  let scrollSpeed = 0;
+  function autoScroll(y) {
+    const edge = 60;
+    if (y < edge) scrollSpeed = -Math.ceil((edge - y) / 4);
+    else if (y > window.innerHeight - edge) scrollSpeed = Math.ceil((y - (window.innerHeight - edge)) / 4);
+    else scrollSpeed = 0;
+    if (scrollSpeed && !scrollTimer) {
+      scrollTimer = setInterval(() => window.scrollBy(0, scrollSpeed), 16);
+    } else if (!scrollSpeed) {
+      stopAutoScroll();
+    }
+  }
+  function stopAutoScroll() {
+    clearInterval(scrollTimer);
+    scrollTimer = null;
+    scrollSpeed = 0;
+  }
+
+  /* ---------- 영화 추가 ---------- */
+  document.getElementById('addForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const input = document.getElementById('titleInput');
+    const title = input.value.trim();
+    if (!title) {
+      alert('영화 제목을 입력해 주세요.');
+      input.value = '';
+      input.focus();
+      return;
+    }
+    if (movies.some(m => m.title === title)) {
+      alert(`'${title}'은(는) 이미 등록된 영화입니다.`);
+      input.focus();
+      return;
+    }
+    movies.push({ id: 'm' + Date.now() + Math.random().toString(36).slice(2, 6), title, zone: 'pool' });
+    save();
+    render();
+    input.value = '';
+    input.focus();
+  });
+
+  movies = load();
+  render();
+</script>
+</body>
+</html>
